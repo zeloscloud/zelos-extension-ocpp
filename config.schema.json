@@ -1,0 +1,70 @@
+{
+  "$comment": "OCPP extension configuration schema. See https://docs.zeloscloud.io/sdk/how-to/develop-extensions/#configuration",
+  "type": "object",
+  "title": "OCPP Configuration",
+  "description": "Configure your OCPP Central System (CSMS) for EV charging station management",
+  "properties": {
+    "host": {
+      "type": "string",
+      "title": "Listen Host",
+      "description": "Host address for the CSMS WebSocket server",
+      "default": "0.0.0.0",
+      "ui:placeholder": "0.0.0.0"
+    },
+    "port": {
+      "type": "integer",
+      "title": "Listen Port",
+      "description": "Port for the CSMS WebSocket server",
+      "default": 9000,
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "device_map_file": {
+      "type": "string",
+      "title": "Device Map File",
+      "description": "Path to JSON device map file for custom charge point variable mapping (optional)",
+      "ui:widget": "file-picker",
+      "ui:options": {
+        "accept": ".json"
+      }
+    },
+    "poll_interval": {
+      "type": "number",
+      "title": "Poll Interval (seconds)",
+      "description": "How often to request TriggerMessage for meter values from charge points",
+      "default": 10.0,
+      "minimum": 1.0,
+      "maximum": 300.0
+    },
+    "ssl_cert_file": {
+      "type": "string",
+      "title": "TLS Certificate File",
+      "description": "Path to PEM certificate file for WSS/TLS (optional)",
+      "ui:widget": "file-picker",
+      "ui:options": {
+        "accept": ".pem,.crt"
+      }
+    },
+    "ssl_key_file": {
+      "type": "string",
+      "title": "TLS Key File",
+      "description": "Path to PEM private key file for WSS/TLS (optional)",
+      "ui:widget": "file-picker",
+      "ui:options": {
+        "accept": ".pem,.key"
+      }
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Log Level",
+      "description": "Logging verbosity",
+      "enum": [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR"
+      ],
+      "default": "INFO"
+    }
+  }
+}

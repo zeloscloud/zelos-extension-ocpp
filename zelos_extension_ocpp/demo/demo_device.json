@@ -1,0 +1,124 @@
+{
+  "name": "demo_charger",
+  "description": "Simulated EV charge point with meter values, status, session tracking, and firmware events",
+  "events": {
+    "meter_values": [
+      {
+        "name": "connector_id",
+        "address": "ConnectorId",
+        "datatype": "uint8"
+      },
+      {
+        "name": "energy_wh",
+        "address": "Energy.Active.Import.Register",
+        "datatype": "float64",
+        "unit": "Wh"
+      },
+      {
+        "name": "power_w",
+        "address": "Power.Active.Import",
+        "datatype": "float32",
+        "unit": "W"
+      },
+      {
+        "name": "current_a",
+        "address": "Current.Import",
+        "datatype": "float32",
+        "unit": "A"
+      },
+      {
+        "name": "voltage_v",
+        "address": "Voltage",
+        "datatype": "float32",
+        "unit": "V"
+      },
+      {
+        "name": "soc_percent",
+        "address": "SoC",
+        "datatype": "float32",
+        "unit": "%"
+      },
+      {
+        "name": "temperature_c",
+        "address": "Temperature",
+        "datatype": "float32",
+        "unit": "C"
+      }
+    ],
+    "status": [
+      {
+        "name": "connector_id",
+        "address": "ConnectorId",
+        "datatype": "uint8"
+      },
+      {
+        "name": "connector_status",
+        "address": "Status",
+        "datatype": "uint8"
+      },
+      {
+        "name": "error_code",
+        "address": "ErrorCode",
+        "datatype": "uint8"
+      }
+    ],
+    "session": [
+      {
+        "name": "connector_id",
+        "address": "ConnectorId",
+        "datatype": "uint8"
+      },
+      {
+        "name": "transaction_id",
+        "address": "TransactionId",
+        "datatype": "int32"
+      },
+      {
+        "name": "meter_start_wh",
+        "address": "MeterStart",
+        "datatype": "float64",
+        "unit": "Wh"
+      },
+      {
+        "name": "meter_stop_wh",
+        "address": "MeterStop",
+        "datatype": "float64",
+        "unit": "Wh"
+      }
+    ],
+    "firmware": [
+      {
+        "name": "firmware_status",
+        "address": "FirmwareStatus",
+        "datatype": "uint8"
+      },
+      {
+        "name": "request_id",
+        "address": "RequestId",
+        "datatype": "int32"
+      }
+    ],
+    "charger_health": [
+      {
+        "name": "total_connected",
+        "address": "TotalConnected",
+        "datatype": "uint8"
+      },
+      {
+        "name": "total_healthy",
+        "address": "TotalHealthy",
+        "datatype": "uint8"
+      },
+      {
+        "name": "total_stale",
+        "address": "TotalStale",
+        "datatype": "uint8"
+      },
+      {
+        "name": "event_type",
+        "address": "EventType",
+        "datatype": "uint8"
+      }
+    ]
+  }
+}
