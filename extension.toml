@@ -11,7 +11,7 @@ keywords = ["ocpp", "ev-charging", "evse", "ev", "charging-station"]
 categories = ["Energy", "IoT", "Networking", "Automotive"]
 
 # File references (relative paths in archive)
-icon = "assets/icon.svg"
+icon = "assets/icon.png"
 readme = "README.md"
 
 # Compatibility (optional, defaults to ^25.0.20)
