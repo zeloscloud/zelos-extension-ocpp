@@ -28,6 +28,15 @@
         "accept": ".json"
       }
     },
+    "charger_aliases_file": {
+      "type": "string",
+      "title": "Charger Aliases File",
+      "description": "Path to JSON file mapping raw OCPP charge-point IDs to friendly trace paths (optional). Example: {\"AABBCCDDEEFF\": \"depot_north/bay_3\"}. Aliases may include '/' for hierarchical fleet grouping.",
+      "ui:widget": "file-picker",
+      "ui:options": {
+        "accept": ".json"
+      }
+    },
     "poll_interval": {
       "type": "number",
       "title": "Poll Interval (seconds)",

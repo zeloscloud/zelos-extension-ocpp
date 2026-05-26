@@ -368,14 +368,19 @@ class TestCsmsIntegration:
         assert handler is not None
         assert len(handler._connectors) > 0
 
-    def test_meter_values_have_correct_types(self, csms_server, simulator):
-        """Verify trace source has been initialized with correct schema."""
+    def test_per_charger_events_registered(self, csms_server, simulator):
+        """Trace source should have per-charger events registered under the
+        resolved path, plus the fleet-level charger_health event at the root."""
         source = csms_server.csms._source
         assert source is not None
-        assert hasattr(source, "meter_values")
-        assert hasattr(source, "status")
-        assert hasattr(source, "session")
-        assert hasattr(source, "firmware")
+        # Fleet-level event stays at the root.
+        assert "charger_health" in source.events
+        # Per-charger events live under <charger_path>/<event>.
+        cp_path = csms_server.csms.get_charger_path("CP_TEST_001")
+        for event_name in ("meter_values", "status", "session", "firmware", "info"):
+            assert f"{cp_path}/{event_name}" in source.events, (
+                f"expected {cp_path}/{event_name} to be registered"
+            )
 
     def test_multiple_meter_values_flow(self, csms_server, simulator):
         """Verify meter values continue to flow over time."""
@@ -521,7 +526,7 @@ class TestProcessMeterValues:
             {"value": "45.0", "measurand": "SoC"},
             {"value": "35.0", "measurand": "Temperature"},
         ]
-        csms.process_meter_values(sampled, connector_id=1)
+        csms.process_meter_values("CP_TEST", sampled, connector_id=1)
         assert csms._meter_values_count == 1
 
     def test_process_partial_meter_values(self, csms_with_source):
@@ -530,7 +535,7 @@ class TestProcessMeterValues:
             {"value": "7360.0", "measurand": "Power.Active.Import"},
             {"value": "230.0", "measurand": "Voltage"},
         ]
-        csms.process_meter_values(sampled, connector_id=1)
+        csms.process_meter_values("CP_TEST", sampled, connector_id=1)
         assert csms._meter_values_count == 1
 
     def test_process_invalid_value_skipped(self, csms_with_source):
@@ -539,38 +544,38 @@ class TestProcessMeterValues:
             {"value": "not_a_number", "measurand": "Power.Active.Import"},
             {"value": "230.0", "measurand": "Voltage"},
         ]
-        csms.process_meter_values(sampled, connector_id=1)
+        csms.process_meter_values("CP_TEST", sampled, connector_id=1)
         assert csms._meter_values_count == 1
 
     def test_process_empty_meter_values(self, csms_with_source):
         csms = csms_with_source
-        csms.process_meter_values([], connector_id=1)
+        csms.process_meter_values("CP_TEST", [], connector_id=1)
         assert csms._meter_values_count == 0
 
     def test_process_meter_values_with_connector_id(self, csms_with_source):
         csms = csms_with_source
         sampled = [{"value": "230.0", "measurand": "Voltage"}]
-        csms.process_meter_values(sampled, connector_id=2)
+        csms.process_meter_values("CP_TEST", sampled, connector_id=2)
         assert csms._meter_values_count == 1
 
     def test_log_status(self, csms_with_source):
         csms = csms_with_source
         # Should not raise
-        csms.log_status(connector_id=1, connector_status=2, error_code=0)
+        csms.log_status("CP_TEST", connector_id=1, connector_status=2, error_code=0)
 
     def test_log_status_with_connector_id(self, csms_with_source):
         csms = csms_with_source
-        csms.log_status(connector_id=2, connector_status=0, error_code=0)
+        csms.log_status("CP_TEST", connector_id=2, connector_status=0, error_code=0)
 
     def test_log_session(self, csms_with_source):
         csms = csms_with_source
-        csms.log_session(connector_id=1, transaction_id=1, meter_start_wh=1000.0)
-        csms.log_session(connector_id=1, transaction_id=1, meter_stop_wh=2000.0)
+        csms.log_session("CP_TEST", connector_id=1, transaction_id=1, meter_start_wh=1000.0)
+        csms.log_session("CP_TEST", connector_id=1, transaction_id=1, meter_stop_wh=2000.0)
 
     def test_log_firmware(self, csms_with_source):
         csms = csms_with_source
-        csms.log_firmware("Downloading", request_id=1)
-        csms.log_firmware("Installed")
+        csms.log_firmware("CP_TEST", "Downloading", request_id=1)
+        csms.log_firmware("CP_TEST", "Installed")
 
 
 # =============================================================================
@@ -598,6 +603,75 @@ def simulator_201(csms_server_201):
     sim.start()
     yield sim
     sim.stop()
+
+
+@pytest.fixture(scope="module")
+def csms_server_multi():
+    """CSMS that hosts two chargers concurrently — one v1.6 + one v2.0.1 with an alias."""
+    server = CsmsTestServer(port=19003)
+    # Inject an alias for the dotted v2.0.1 cp_id: exercises both alias resolution
+    # and dot sanitization end-to-end through a live OCPP handshake.
+    server.csms._resolver = type(server.csms._resolver)({"CP.MULTI.201": "fleet_e2e/bay_2"})
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture(scope="module")
+def multi_simulators(csms_server_multi):
+    """Two concurrent simulators on the same CSMS: v1.6 (sanitized cp_id) + v2.0.1 (aliased)."""
+    sim_16 = SimulatorRunner(
+        csms_url=f"ws://127.0.0.1:{csms_server_multi.port}",
+        cp_id="CP_MULTI_16",
+        ocpp_version="1.6",
+    )
+    sim_201 = SimulatorRunner(
+        csms_url=f"ws://127.0.0.1:{csms_server_multi.port}",
+        cp_id="CP.MULTI.201",
+        ocpp_version="2.0.1",
+    )
+    sim_16.start()
+    sim_201.start()
+    # Let both run long enough for meter values to flow through.
+    time.sleep(3.0)
+    yield (sim_16, sim_201)
+    sim_16.stop()
+    sim_201.stop()
+
+
+class TestMultiChargerIsolation:
+    """Two chargers on one CSMS must produce independent per-charger trace paths."""
+
+    def test_both_chargers_connected(self, csms_server_multi, multi_simulators):
+        cps = csms_server_multi.csms._charge_points
+        assert "CP_MULTI_16" in cps
+        assert "CP.MULTI.201" in cps
+
+    def test_paths_resolve_distinctly(self, csms_server_multi, multi_simulators):
+        # Sanitized default for v1.6 (already alnum), alias for the dotted v2.0.1 id.
+        assert csms_server_multi.csms.get_charger_path("CP_MULTI_16") == "CP_MULTI_16"
+        assert csms_server_multi.csms.get_charger_path("CP.MULTI.201") == "fleet_e2e/bay_2"
+
+    def test_per_charger_events_registered_for_both(self, csms_server_multi, multi_simulators):
+        events = csms_server_multi.csms._source.events
+        for event_name in ("meter_values", "status", "session", "firmware", "info"):
+            assert f"CP_MULTI_16/{event_name}" in events, f"missing CP_MULTI_16/{event_name}"
+            assert f"fleet_e2e/bay_2/{event_name}" in events, (
+                f"missing fleet_e2e/bay_2/{event_name}"
+            )
+
+    def test_data_flows_from_both(self, csms_server_multi, multi_simulators):
+        # Both simulators ran a charging cycle; meter_values must have arrived for both.
+        assert csms_server_multi.csms._meter_values_count > 0
+        # Each charger registered its own handler with the correct ocpp_version.
+        assert csms_server_multi.csms._charge_points["CP_MULTI_16"].ocpp_version == "1.6"
+        assert csms_server_multi.csms._charge_points["CP.MULTI.201"].ocpp_version == "2.0.1"
+
+    def test_get_status_reports_both_with_trace_paths(self, csms_server_multi, multi_simulators):
+        result = csms_server_multi.csms.get_status()
+        ids = {cp["id"]: cp["trace_path"] for cp in result["charge_points"]}
+        assert ids.get("CP_MULTI_16") == "CP_MULTI_16"
+        assert ids.get("CP.MULTI.201") == "fleet_e2e/bay_2"
 
 
 class TestOcpp201Integration:

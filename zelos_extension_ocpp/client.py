@@ -46,6 +46,7 @@ except ImportError:
 
     ServerConnection = Any  # type: ignore[assignment,misc]
 
+from zelos_extension_ocpp.charger_id import ChargerPathResolver
 from zelos_extension_ocpp.ocpp_map import NodeMap
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,20 @@ class ChargePointHandler16(Cp16):
             f"[CSMS] BootNotification from {self.id}: "
             f"vendor={charge_point_vendor}, model={charge_point_model}"
         )
+        # OCPP 1.6 BootNotification carries a richer set of fields than the two
+        # required positional ones — surface them all in the info trace.
+        self.csms.log_info(
+            self.id,
+            vendor=charge_point_vendor,
+            model=charge_point_model,
+            serial_number=str(
+                kwargs.get("charge_point_serial_number")
+                or kwargs.get("charge_box_serial_number")
+                or ""
+            ),
+            firmware_version=str(kwargs.get("firmware_version") or ""),
+            ocpp_version=self.ocpp_version,
+        )
         return call_result16.BootNotification(
             current_time=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             interval=10,
@@ -172,7 +187,7 @@ class ChargePointHandler16(Cp16):
 
         status_int = CONNECTOR_STATUS_MAP.get(status, 0)
         error_int = 0 if error_code == "NoError" else 1
-        self.csms.log_status(connector_id, status_int, error_int)
+        self.csms.log_status(self.id, connector_id, status_int, error_int)
 
         return call_result16.StatusNotification()
 
@@ -182,7 +197,7 @@ class ChargePointHandler16(Cp16):
 
         for mv in meter_value:
             sampled_values = mv.get("sampled_value", [])
-            self.csms.process_meter_values(sampled_values, connector_id=connector_id)
+            self.csms.process_meter_values(self.id, sampled_values, connector_id=connector_id)
 
         return call_result16.MeterValues()
 
@@ -207,7 +222,7 @@ class ChargePointHandler16(Cp16):
             f"connector={connector_id}, id_tag={id_tag}, txn_id={txn_id}"
         )
 
-        self.csms.log_session(connector_id, txn_id, meter_start_wh=float(meter_start))
+        self.csms.log_session(self.id, connector_id, txn_id, meter_start_wh=float(meter_start))
 
         return call_result16.StartTransaction(
             transaction_id=txn_id,
@@ -229,7 +244,9 @@ class ChargePointHandler16(Cp16):
                 connector_id = cid
                 break
 
-        self.csms.log_session(connector_id, transaction_id, meter_stop_wh=float(meter_stop))
+        self.csms.log_session(
+            self.id, connector_id, transaction_id, meter_stop_wh=float(meter_stop)
+        )
 
         return call_result16.StopTransaction(
             id_tag_info={"status": AuthorizationStatus.accepted},
@@ -239,7 +256,7 @@ class ChargePointHandler16(Cp16):
     def on_firmware_status_notification(self, status: str, **kwargs):
         logger.info(f"[CSMS] FirmwareStatusNotification from {self.id}: status={status}")
         self.firmware_status = status
-        self.csms.log_firmware(status)
+        self.csms.log_firmware(self.id, status)
         return call_result16.FirmwareStatusNotification()
 
     # -- Version-specific action dispatch methods --
@@ -288,12 +305,28 @@ class ChargePointHandler201(Cp201):
 
     @on(Action201.boot_notification)
     def on_boot_notification(self, charging_station: dict, reason: str, **kwargs):
-        vendor = charging_station.get("vendor_name", "unknown")
-        model = charging_station.get("model", "unknown")
+        vendor = str(charging_station.get("vendor_name") or "")
+        model = str(charging_station.get("model") or "")
         logger.info(
             f"[CSMS] BootNotification (2.0.1) from {self.id}: "
-            f"vendor={vendor}, model={model}, reason={reason}"
+            f"vendor={vendor or '?'}, model={model or '?'}, reason={reason}"
         )
+        modem = charging_station.get("modem") or {}
+        self.csms.log_info(
+            self.id,
+            vendor=vendor,
+            model=model,
+            serial_number=str(charging_station.get("serial_number") or ""),
+            firmware_version=str(charging_station.get("firmware_version") or ""),
+            ocpp_version=self.ocpp_version,
+        )
+        # iccid/imsi are useful operational metadata for cellular-attached CPs;
+        # carried by the modem sub-object in 2.0.1 — logged at INFO for now since
+        # they aren't part of the trace schema (string fields, optional).
+        if modem.get("iccid") or modem.get("imsi"):
+            logger.info(
+                f"[CSMS] {self.id} modem: iccid={modem.get('iccid')!r} imsi={modem.get('imsi')!r}"
+            )
         return call_result201.BootNotification(
             current_time=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             interval=10,
@@ -319,7 +352,7 @@ class ChargePointHandler201(Cp201):
         conn.status = connector_status
 
         status_int = CONNECTOR_STATUS_MAP_201.get(connector_status, 0)
-        self.csms.log_status(connector_id, status_int, 0)
+        self.csms.log_status(self.id, connector_id, status_int, 0)
 
         return call_result201.StatusNotification()
 
@@ -364,7 +397,7 @@ class ChargePointHandler201(Cp201):
                 f"[CSMS] TransactionEvent Started (2.0.1) from {self.id}: "
                 f"txn={ocpp_txn_id}, connector={connector_id}"
             )
-            self.csms.log_session(connector_id, int_txn_id, meter_start_wh=meter_start)
+            self.csms.log_session(self.id, connector_id, int_txn_id, meter_start_wh=meter_start)
 
         elif event_type == TransactionEventEnumType.updated:
             int_txn_id = self._transaction_map.get(ocpp_txn_id, 0)
@@ -378,7 +411,7 @@ class ChargePointHandler201(Cp201):
                         if "measurand" in sv:
                             entry["measurand"] = sv["measurand"]
                         converted.append(entry)
-                    self.csms.process_meter_values(converted, connector_id=connector_id)
+                    self.csms.process_meter_values(self.id, converted, connector_id=connector_id)
 
         elif event_type == TransactionEventEnumType.ended:
             int_txn_id = self._transaction_map.pop(ocpp_txn_id, 0)
@@ -392,7 +425,7 @@ class ChargePointHandler201(Cp201):
                 f"[CSMS] TransactionEvent Ended (2.0.1) from {self.id}: "
                 f"txn={ocpp_txn_id}, connector={connector_id}"
             )
-            self.csms.log_session(connector_id, int_txn_id, meter_stop_wh=meter_stop)
+            self.csms.log_session(self.id, connector_id, int_txn_id, meter_stop_wh=meter_stop)
 
         return call_result201.TransactionEvent()
 
@@ -408,7 +441,7 @@ class ChargePointHandler201(Cp201):
                 if "measurand" in sv:
                     entry["measurand"] = sv["measurand"]
                 converted.append(entry)
-            self.csms.process_meter_values(converted, connector_id=evse_id)
+            self.csms.process_meter_values(self.id, converted, connector_id=evse_id)
 
         return call_result201.MeterValues()
 
@@ -429,7 +462,7 @@ class ChargePointHandler201(Cp201):
         )
         self.firmware_status = status
         self.firmware_request_id = request_id
-        self.csms.log_firmware(status, request_id=request_id)
+        self.csms.log_firmware(self.id, status, request_id=request_id)
         return call_result201.FirmwareStatusNotification()
 
     # -- Version-specific action dispatch methods --
@@ -491,6 +524,8 @@ class OcppCsms:
         poll_interval: float = 10.0,
         ssl_cert_file: str | None = None,
         ssl_key_file: str | None = None,
+        charger_aliases: dict[str, str] | None = None,
+        charger_aliases_file: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -508,96 +543,91 @@ class OcppCsms:
         self._meter_values_count = 0
         self._source: zelos_sdk.TraceSourceCacheLast | None = None
 
-    def _init_trace_source(self) -> None:
-        """Initialize Zelos trace source from node map."""
-        source_name = self.node_map.name if self.node_map else "ocpp"
-        self._source = zelos_sdk.TraceSourceCacheLast(source_name)
+        # Charge-point identity resolution. Aliases passed in-process take
+        # precedence; otherwise loaded from a JSON file if provided.
+        if charger_aliases is not None:
+            self._resolver = ChargerPathResolver(charger_aliases)
+        else:
+            self._resolver = ChargerPathResolver.from_file(charger_aliases_file)
 
+        # Per-charger event registration bookkeeping.
+        self._registered_paths: set[str] = set()
+        self._event_templates: dict[str, list[zelos_sdk.TraceEventFieldMetadata]] = {}
+
+    # ---- Default per-charger event schema templates ------------------------
+    # Each charger gets its own copy registered under `<charger_path>/<event>`.
+    # Charge-point ID is *implicit in the path* — operators browse and plot
+    # per-charger streams natively in the Zelos viewer. The `connector_id`
+    # field disambiguates connectors within a single charger.
+
+    @staticmethod
+    def _default_event_templates() -> dict[str, list[zelos_sdk.TraceEventFieldMetadata]]:
+        return {
+            "meter_values": [
+                zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
+                zelos_sdk.TraceEventFieldMetadata("energy_wh", zelos_sdk.DataType.Float64, "Wh"),
+                zelos_sdk.TraceEventFieldMetadata("power_w", zelos_sdk.DataType.Float32, "W"),
+                zelos_sdk.TraceEventFieldMetadata("current_a", zelos_sdk.DataType.Float32, "A"),
+                zelos_sdk.TraceEventFieldMetadata("voltage_v", zelos_sdk.DataType.Float32, "V"),
+                zelos_sdk.TraceEventFieldMetadata("soc_percent", zelos_sdk.DataType.Float32, "%"),
+                zelos_sdk.TraceEventFieldMetadata("temperature_c", zelos_sdk.DataType.Float32, "C"),
+            ],
+            "status": [
+                zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
+                zelos_sdk.TraceEventFieldMetadata("connector_status", zelos_sdk.DataType.UInt8),
+                zelos_sdk.TraceEventFieldMetadata("error_code", zelos_sdk.DataType.UInt8),
+            ],
+            "session": [
+                zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
+                zelos_sdk.TraceEventFieldMetadata("transaction_id", zelos_sdk.DataType.Int32),
+                zelos_sdk.TraceEventFieldMetadata(
+                    "meter_start_wh", zelos_sdk.DataType.Float64, "Wh"
+                ),
+                zelos_sdk.TraceEventFieldMetadata(
+                    "meter_stop_wh", zelos_sdk.DataType.Float64, "Wh"
+                ),
+            ],
+            "firmware": [
+                zelos_sdk.TraceEventFieldMetadata("firmware_status", zelos_sdk.DataType.UInt8, ""),
+                zelos_sdk.TraceEventFieldMetadata("request_id", zelos_sdk.DataType.Int32, ""),
+            ],
+            "info": [
+                zelos_sdk.TraceEventFieldMetadata("vendor", zelos_sdk.DataType.String),
+                zelos_sdk.TraceEventFieldMetadata("model", zelos_sdk.DataType.String),
+                zelos_sdk.TraceEventFieldMetadata("serial_number", zelos_sdk.DataType.String),
+                zelos_sdk.TraceEventFieldMetadata("firmware_version", zelos_sdk.DataType.String),
+                zelos_sdk.TraceEventFieldMetadata("ocpp_version", zelos_sdk.DataType.String),
+            ],
+        }
+
+    def _build_event_templates(
+        self,
+    ) -> dict[str, list[zelos_sdk.TraceEventFieldMetadata]]:
+        """Build per-charger event schemas, overlaying any user node-map."""
+        templates = self._default_event_templates()
         if not self.node_map or not self.node_map.events:
-            # Default schema when no map is provided
-            self._source.add_event(
-                "meter_values",
-                [
-                    zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "energy_wh", zelos_sdk.DataType.Float64, "Wh"
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata("power_w", zelos_sdk.DataType.Float32, "W"),
-                    zelos_sdk.TraceEventFieldMetadata("current_a", zelos_sdk.DataType.Float32, "A"),
-                    zelos_sdk.TraceEventFieldMetadata("voltage_v", zelos_sdk.DataType.Float32, "V"),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "soc_percent", zelos_sdk.DataType.Float32, "%"
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "temperature_c", zelos_sdk.DataType.Float32, "C"
-                    ),
-                ],
-            )
-            self._source.add_event(
-                "status",
-                [
-                    zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
-                    zelos_sdk.TraceEventFieldMetadata("connector_status", zelos_sdk.DataType.UInt8),
-                    zelos_sdk.TraceEventFieldMetadata("error_code", zelos_sdk.DataType.UInt8),
-                ],
-            )
-            self._source.add_event(
-                "session",
-                [
-                    zelos_sdk.TraceEventFieldMetadata("connector_id", zelos_sdk.DataType.UInt8, ""),
-                    zelos_sdk.TraceEventFieldMetadata("transaction_id", zelos_sdk.DataType.Int32),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "meter_start_wh", zelos_sdk.DataType.Float64, "Wh"
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "meter_stop_wh", zelos_sdk.DataType.Float64, "Wh"
-                    ),
-                ],
-            )
-            self._source.add_event(
-                "firmware",
-                [
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "firmware_status", zelos_sdk.DataType.UInt8, ""
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata("request_id", zelos_sdk.DataType.Int32, ""),
-                ],
-            )
-
-            self._source.add_event(
-                "charger_health",
-                [
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "total_connected", zelos_sdk.DataType.UInt8, ""
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata(
-                        "total_healthy", zelos_sdk.DataType.UInt8, ""
-                    ),
-                    zelos_sdk.TraceEventFieldMetadata("total_stale", zelos_sdk.DataType.UInt8, ""),
-                    zelos_sdk.TraceEventFieldMetadata("event_type", zelos_sdk.DataType.UInt8, ""),
-                ],
-            )
-
-            self._source.add_value_table("status", "connector_status", CONNECTOR_STATUS_NAMES)
-            self._source.add_value_table("firmware", "firmware_status", FIRMWARE_STATUS_NAMES)
-            self._source.add_value_table("charger_health", "event_type", HEALTH_EVENT_NAMES)
-            return
+            return templates
 
         for event_name, nodes in self.node_map.events.items():
-            if not nodes:
+            # charger_health is fleet-level; the node map cannot override it
+            if event_name == "charger_health" or not nodes:
                 continue
-
-            fields = []
+            fields: list[zelos_sdk.TraceEventFieldMetadata] = []
             for node in nodes:
                 dtype = SDK_DATATYPE_MAP.get(node.datatype)
                 if dtype is None:
                     continue
                 fields.append(zelos_sdk.TraceEventFieldMetadata(node.name, dtype, node.unit))
-
             if fields:
-                self._source.add_event(event_name, fields)
+                templates[event_name] = fields
+        return templates
 
-        # Always register charger_health event (fleet-level, not from node map)
+    def _init_trace_source(self) -> None:
+        """Initialize Zelos trace source and register fleet-level events."""
+        source_name = self.node_map.name if self.node_map else "ocpp"
+        self._source = zelos_sdk.TraceSourceCacheLast(source_name)
+
+        # Fleet-level event only — per-charger events register lazily on connect.
         self._source.add_event(
             "charger_health",
             [
@@ -607,30 +637,59 @@ class OcppCsms:
                 zelos_sdk.TraceEventFieldMetadata("event_type", zelos_sdk.DataType.UInt8, ""),
             ],
         )
-
-        # Add value tables if fields exist in the map
-        if self.node_map.get_by_name("connector_status"):
-            self._source.add_value_table("status", "connector_status", CONNECTOR_STATUS_NAMES)
-        if self.node_map.get_by_name("firmware_status"):
-            self._source.add_value_table("firmware", "firmware_status", FIRMWARE_STATUS_NAMES)
         self._source.add_value_table("charger_health", "event_type", HEALTH_EVENT_NAMES)
 
-    def process_meter_values(self, sampled_values: list[dict], connector_id: int = 1) -> None:
-        """Convert OCPP MeterValues to Zelos trace events."""
+        self._event_templates = self._build_event_templates()
+
+    def _register_charger(self, cp_id: str, ocpp_version: str = "1.6") -> str:
+        """Resolve cp_id → trace path and register per-charger events once.
+
+        Returns the resolved trace-path segment for this charger.
+        """
+        path = self._resolver.resolve(cp_id)
+        if path in self._registered_paths or not self._source:
+            return path
+
+        for event_name, fields in self._event_templates.items():
+            self._source.add_event(f"{path}/{event_name}", fields)
+
+        # OCPP 1.6 and 2.0.1 use different connector status enums.
+        status_table = (
+            CONNECTOR_STATUS_NAMES_201 if ocpp_version == "2.0.1" else CONNECTOR_STATUS_NAMES
+        )
+        self._source.add_value_table(f"{path}/status", "connector_status", status_table)
+        self._source.add_value_table(f"{path}/firmware", "firmware_status", FIRMWARE_STATUS_NAMES)
+
+        self._registered_paths.add(path)
+        logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> ocpp/{path}/*")
+        return path
+
+    def get_charger_path(self, cp_id: str) -> str:
+        """Public accessor for the resolved trace path of a charge point."""
+        return self._resolver.resolve(cp_id)
+
+    def _log_event(
+        self, cp_id: str, event_name: str, values: dict[str, Any], ocpp_version: str = "1.6"
+    ) -> None:
+        """Log a per-charger event. Resolves the charger path and registers
+        schemas lazily on first sight."""
         if not self._source:
             return
+        path = self._register_charger(cp_id, ocpp_version=ocpp_version)
+        self._source.log(f"{path}/{event_name}", values)
 
-        # Map measurand names to values
-        measurand_map = {}
+    def process_meter_values(
+        self, cp_id: str, sampled_values: list[dict], connector_id: int = 1
+    ) -> None:
+        """Convert OCPP MeterValues to a Zelos trace event for this charger."""
+        measurand_map: dict[str, float] = {}
         for sv in sampled_values:
             measurand = sv.get("measurand", "Energy.Active.Import.Register")
-            value_str = sv.get("value", "0")
             try:
-                measurand_map[measurand] = float(value_str)
+                measurand_map[measurand] = float(sv.get("value", "0"))
             except (ValueError, TypeError):
                 continue
 
-        # Map to trace fields
         values: dict[str, Any] = {"connector_id": connector_id}
         if "Energy.Active.Import.Register" in measurand_map:
             values["energy_wh"] = measurand_map["Energy.Active.Import.Register"]
@@ -646,44 +705,75 @@ class OcppCsms:
             values["temperature_c"] = measurand_map["Temperature"]
 
         if len(values) > 1:  # more than just connector_id
-            self._source.meter_values.log(**values)
+            self._log_event(cp_id, "meter_values", values)
             self._meter_values_count += 1
 
-    def log_status(self, connector_id: int, connector_status: int, error_code: int) -> None:
-        """Log a connector status change."""
-        if not self._source:
-            return
-        self._source.status.log(
-            connector_id=connector_id,
-            connector_status=connector_status,
-            error_code=error_code,
+    def log_status(
+        self, cp_id: str, connector_id: int, connector_status: int, error_code: int
+    ) -> None:
+        """Log a connector status change for this charger."""
+        self._log_event(
+            cp_id,
+            "status",
+            {
+                "connector_id": connector_id,
+                "connector_status": connector_status,
+                "error_code": error_code,
+            },
         )
 
     def log_session(
         self,
+        cp_id: str,
         connector_id: int,
         transaction_id: int,
         meter_start_wh: float = 0.0,
         meter_stop_wh: float = 0.0,
     ) -> None:
-        """Log a session (transaction) event."""
-        if not self._source:
-            return
-        self._source.session.log(
-            connector_id=connector_id,
-            transaction_id=transaction_id,
-            meter_start_wh=meter_start_wh,
-            meter_stop_wh=meter_stop_wh,
+        """Log a session (transaction) event for this charger."""
+        self._log_event(
+            cp_id,
+            "session",
+            {
+                "connector_id": connector_id,
+                "transaction_id": transaction_id,
+                "meter_start_wh": meter_start_wh,
+                "meter_stop_wh": meter_stop_wh,
+            },
         )
 
-    def log_firmware(self, status: str, request_id: int | None = None) -> None:
-        """Log a firmware status event."""
-        if not self._source:
-            return
-        status_int = FIRMWARE_STATUS_MAP.get(status, 0)
-        self._source.firmware.log(
-            firmware_status=status_int,
-            request_id=request_id or 0,
+    def log_firmware(self, cp_id: str, status: str, request_id: int | None = None) -> None:
+        """Log a firmware status event for this charger."""
+        self._log_event(
+            cp_id,
+            "firmware",
+            {
+                "firmware_status": FIRMWARE_STATUS_MAP.get(status, 0),
+                "request_id": request_id or 0,
+            },
+        )
+
+    def log_info(
+        self,
+        cp_id: str,
+        vendor: str = "",
+        model: str = "",
+        serial_number: str = "",
+        firmware_version: str = "",
+        ocpp_version: str = "",
+    ) -> None:
+        """Log a one-shot identity event for this charger (from BootNotification)."""
+        self._log_event(
+            cp_id,
+            "info",
+            {
+                "vendor": vendor,
+                "model": model,
+                "serial_number": serial_number,
+                "firmware_version": firmware_version,
+                "ocpp_version": ocpp_version,
+            },
+            ocpp_version=ocpp_version or "1.6",
         )
 
     def log_charger_health(self, event_type: int) -> None:
@@ -740,9 +830,8 @@ class OcppCsms:
 
         use_201 = "ocpp2.0.1" in flat_protocols
 
-        logger.info(
-            f"[CSMS] Charge point connected: {cp_id} (version={'2.0.1' if use_201 else '1.6'})"
-        )
+        ocpp_version = "2.0.1" if use_201 else "1.6"
+        logger.info(f"[CSMS] Charge point connected: {cp_id} (version={ocpp_version})")
 
         if use_201:
             handler = ChargePointHandler201(cp_id, websocket, self)
@@ -750,6 +839,10 @@ class OcppCsms:
             handler = ChargePointHandler16(cp_id, websocket, self)
 
         self._charge_points[cp_id] = handler
+
+        # Register per-charger schemas eagerly so the right value-table
+        # variant (1.6 vs 2.0.1) is bound before any messages arrive.
+        self._register_charger(cp_id, ocpp_version=ocpp_version)
         self.log_charger_health(HEALTH_EVENT_CONNECT)
 
         try:
@@ -833,6 +926,7 @@ class OcppCsms:
             cp_list.append(
                 {
                     "id": cp_id,
+                    "trace_path": self._resolver.resolve(cp_id),
                     "ocpp_version": handler.ocpp_version,
                     "connectors": connectors,
                     "firmware_status": handler.firmware_status,

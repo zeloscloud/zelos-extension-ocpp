@@ -115,6 +115,7 @@ def run_app_mode(demo: bool = False) -> None:
 
     ssl_cert = config.get("ssl_cert_file")
     ssl_key = config.get("ssl_key_file")
+    aliases_file = config.get("charger_aliases_file")
 
     client_kwargs: dict[str, Any] = {
         "host": host,
@@ -123,6 +124,7 @@ def run_app_mode(demo: bool = False) -> None:
         "poll_interval": config.get("poll_interval", 10.0),
         "ssl_cert_file": ssl_cert if ssl_cert else None,
         "ssl_key_file": ssl_key if ssl_key else None,
+        "charger_aliases_file": aliases_file if aliases_file else None,
     }
 
     client = OcppCsms(**client_kwargs)

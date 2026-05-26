@@ -28,20 +28,60 @@ All configuration is managed through the Zelos App settings interface.
 
 ### Optional Settings
 - **Device Map File** — JSON file for custom charge point variable mapping
+- **Charger Aliases File** — JSON map of OCPP charge-point IDs to friendly trace paths (see below)
 - **Poll Interval** — How often to send TriggerMessage for meter values (default: 10s, range: 1–300s)
 - **TLS Certificate File** — PEM certificate for WSS/TLS
 - **TLS Key File** — PEM private key for WSS/TLS
 - **Log Level** — Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 
-## Trace Events
+## Trace Layout
+
+Each connected charger gets its own subtree under the OCPP source, identified
+by the WebSocket-path `cp_id` (sanitized) or an operator-supplied alias.
+Fleet-level health stays at the root.
+
+```
+ocpp/
+├── charger_health                 # fleet totals: connected / healthy / stale
+└── <charger_path>/
+    ├── info                       # one-shot on BootNotification
+    ├── status                     # connector status changes
+    ├── session                    # transaction start/stop
+    ├── firmware                   # firmware update progress
+    └── meter_values               # periodic readings
+```
 
 | Event | Fields | Description |
 |-------|--------|-------------|
-| `meter_values` | connector_id, energy_wh, power_w, current_a, voltage_v, soc_percent, temperature_c | Periodic meter readings |
-| `status` | connector_id, connector_status, error_code | Connector status changes |
-| `session` | connector_id, transaction_id, meter_start_wh, meter_stop_wh | Transaction lifecycle |
-| `firmware` | firmware_status, request_id | Firmware update progress |
-| `charger_health` | total_connected, total_healthy, total_stale, event_type | Fleet health snapshots |
+| `<cp>/meter_values` | connector_id, energy_wh, power_w, current_a, voltage_v, soc_percent, temperature_c | Periodic meter readings |
+| `<cp>/status` | connector_id, connector_status, error_code | Connector status changes |
+| `<cp>/session` | connector_id, transaction_id, meter_start_wh, meter_stop_wh | Transaction lifecycle |
+| `<cp>/firmware` | firmware_status, request_id | Firmware update progress |
+| `<cp>/info` | vendor, model, serial_number, firmware_version, ocpp_version | Charger identity from BootNotification |
+| `charger_health` | total_connected, total_healthy, total_stale, event_type | Fleet snapshots (root) |
+
+### Charger Aliases
+
+Raw OCPP `cp_id` values are sanitized for use as trace-path segments (dots,
+colons, slashes, and whitespace become underscores). To give chargers
+human-friendly names — or organize them hierarchically by site/bay —
+provide a JSON aliases file:
+
+```json
+{
+  "AABBCCDDEEFF": "depot_north/bay_3",
+  "ABB_EVB_2024_00471": "garage/charger_a",
+  "192.168.1.42": "lab/bench_psu"
+}
+```
+
+Aliases may contain `/` to nest chargers under a site or fleet — the Zelos
+app will render the hierarchy in its trace tree. Aliases are themselves
+sanitized per-segment.
+
+If no alias matches and the raw `cp_id` sanitizes to nothing usable, the
+extension assigns a monotonic fallback path (`cp_0`, `cp_1`, …) and logs a
+warning.
 
 ## Actions
 

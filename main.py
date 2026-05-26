@@ -115,6 +115,12 @@ def demo(ctx: click.Context) -> None:
 @click.option("--interval", "-i", type=float, default=10.0, help="Poll interval in seconds")
 @click.option("--ssl-cert", type=click.Path(exists=True), default=None, help="TLS cert (PEM)")
 @click.option("--ssl-key", type=click.Path(exists=True), default=None, help="TLS key (PEM)")
+@click.option(
+    "--aliases",
+    type=click.Path(exists=True),
+    default=None,
+    help="JSON file mapping charge-point IDs to friendly trace paths",
+)
 @click.pass_context
 def trace(
     ctx: click.Context,
@@ -123,6 +129,7 @@ def trace(
     interval: float,
     ssl_cert: str | None,
     ssl_key: str | None,
+    aliases: str | None,
 ) -> None:
     """Trace OCPP charge points from command line.
 
@@ -155,6 +162,7 @@ def trace(
         poll_interval=interval,
         ssl_cert_file=ssl_cert,
         ssl_key_file=ssl_key,
+        charger_aliases_file=aliases,
     )
 
     # Register actions BEFORE init() -- SDK requires this ordering
