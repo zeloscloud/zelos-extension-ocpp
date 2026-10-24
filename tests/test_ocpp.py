@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import socket
 import tempfile
@@ -433,6 +434,22 @@ class TestActionsUnit:
     @pytest.fixture
     def csms(self):
         return OcppCsms(host="127.0.0.1", port=19999)
+
+    def test_action_flags(self):
+        """Pins each action's flags, so a new action or a changed flag is a deliberate choice."""
+        actual = {
+            name: (member._action.read_only, member._action.hidden)
+            for name, member in inspect.getmembers(OcppCsms)
+            if hasattr(member, "_action")
+        }
+        assert actual == {
+            "get_status": (True, True),
+            "remote_start_action": (False, False),
+            "remote_stop_action": (False, False),
+            "reset_action": (False, False),
+            "trigger_meter_values_action": (True, False),
+            "update_firmware_action": (False, False),
+        }
 
     def test_get_status_returns_info(self, csms):
         result = csms.get_status()
