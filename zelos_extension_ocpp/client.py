@@ -911,7 +911,12 @@ class OcppCsms:
     # SDK Actions
     # =========================================================================
 
-    @zelos_sdk.action("Get Status", "List connected charge points and CSMS health")
+    @zelos_sdk.action(
+        "Get Status",
+        "List connected charge points and CSMS health",
+        read_only=True,
+        hidden=True,
+    )
     def get_status(self) -> dict[str, Any]:
         cp_list = []
         for cp_id, handler in self._charge_points.items():
@@ -1011,7 +1016,11 @@ class OcppCsms:
         except Exception as e:
             return {"error": str(e), "success": False}
 
-    @zelos_sdk.action("Trigger MeterValues", "Request immediate meter readings from a charge point")
+    @zelos_sdk.action(
+        "Trigger MeterValues",
+        "Request immediate meter readings from a charge point",
+        read_only=True,
+    )
     @zelos_sdk.action.text("cp_id", title="Charge Point ID")
     def trigger_meter_values_action(self, cp_id: str) -> dict[str, Any]:
         handler = self._charge_points.get(cp_id)
