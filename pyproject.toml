@@ -17,7 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "zelos-sdk>=0.0.9",
+    "zelos-sdk>=0.0.13a1",
     "ocpp>=2.0.0",
     "websockets>=13.0",
     "rich-click>=1.8.0",
