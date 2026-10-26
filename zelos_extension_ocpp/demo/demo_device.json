@@ -1,6 +1,5 @@
 {
   "name": "demo_charger",
-  "description": "Simulated EV charge point with meter values, status, session tracking, and firmware events",
   "events": {
     "meter_values": [
       {
@@ -96,28 +95,6 @@
         "name": "request_id",
         "address": "RequestId",
         "datatype": "int32"
-      }
-    ],
-    "charger_health": [
-      {
-        "name": "total_connected",
-        "address": "TotalConnected",
-        "datatype": "uint8"
-      },
-      {
-        "name": "total_healthy",
-        "address": "TotalHealthy",
-        "datatype": "uint8"
-      },
-      {
-        "name": "total_stale",
-        "address": "TotalStale",
-        "datatype": "uint8"
-      },
-      {
-        "name": "event_type",
-        "address": "EventType",
-        "datatype": "uint8"
       }
     ]
   }

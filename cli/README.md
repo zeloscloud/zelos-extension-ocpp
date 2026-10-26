@@ -2,8 +2,6 @@
 
 The extension includes a command-line interface for advanced use cases and development. No installation required — just use `uv run`:
 
-> **Tip:** Run `pip install .` to install and use `zelos-extension-ocpp <args>` from anywhere.
-
 ## OCPP Tracing (no Zelos App required)
 
 ```bash
