@@ -87,12 +87,13 @@ warning.
 
 The extension provides several actions accessible from the Zelos App:
 
-- **Get Status** — View connected charge points, connector states, firmware status, and statistics
 - **Remote Start Transaction** — Start a charging session on a specific charge point
 - **Remote Stop Transaction** — Stop an active charging session
 - **Trigger MeterValues** — Request immediate meter readings from a charge point
 - **Reset Charge Point** — Send a soft or hard reset command
 - **Update Firmware** — Trigger a firmware update on a charge point
+
+**Get Status** reports connected charge points, connector states, firmware status, and statistics. The app's action list leaves it out, and Zelos AI can still run it.
 
 ## What is OCPP?
 

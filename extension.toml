@@ -1,33 +1,24 @@
-# Zelos Extension Manifest
-# See https://docs.zeloscloud.io/sdk/how-to/develop-extensions/ for full documentation
-
 name = "OCPP"
 version = "0.1.0"
-description = "OCPP 1.6 + 2.0.1 protocol extension for Zelos - EV charging station management as a Central System (CSMS)"
+description = "Run an OCPP 1.6 and 2.0.1 central system (CSMS): EV charge points connect over WebSocket and their meter values, connector status and sessions become signals. Remote start and stop, reset and firmware update."
 author = "Zelos"
 repository = "https://github.com/zeloscloud/zelos-extension-ocpp"
-homepage = "https://github.com/zeloscloud/zelos-extension-ocpp"
-keywords = ["ocpp", "ev-charging", "evse", "ev", "charging-station"]
+# The marketplace search and Zelos AI find an extension by these words, its name and its description.
+keywords = ["ocpp", "ev-charging", "evse", "ev", "charging-station", "ocpp-j", "ocpp 1.6", "ocpp 2.0.1", "ocpp16", "ocpp201", "open charge point protocol", "csms", "central system", "charge point", "charging station", "ev charger", "websocket", "wss", "tls", "meter values"]
 categories = ["Energy", "IoT", "Networking", "Automotive"]
-
-# File references (relative paths in archive)
 icon = "assets/icon.png"
 readme = "README.md"
 
-# Compatibility (optional, defaults to ^25.0.20)
 [zelos]
-version = ">=26.0.9"
+version = ">=26.0.10"
 
-# Configuration schema (enables UI in Zelos App)
 [config]
 schema = "config.schema.json"
 
-# Runtime configuration
-[runtime]
-type = "python"
+[agent]
+runtime = "python"
 entry = "main.py"
 python_version = "3.11"
 
-# Graceful shutdown configuration (optional, defaults to 10)
-[stop]
-grace_seconds = 10
+[package]
+paths = ["main.py", "zelos_extension_ocpp"]
