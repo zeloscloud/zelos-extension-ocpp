@@ -129,7 +129,6 @@ def run_app_mode(demo: bool = False) -> None:
 
     client = OcppCsms(**client_kwargs)
 
-    # Register actions BEFORE init() -- SDK requires this ordering
     zelos_sdk.actions_registry.register(client)
     zelos_sdk.init(name="zelos_extension_ocpp", actions=True)
 

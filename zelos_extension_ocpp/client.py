@@ -38,13 +38,7 @@ from ocpp.v201.enums import (
     TransactionEventEnumType,
 )
 from ocpp.v201.enums import RegistrationStatusEnumType as RegStatus201
-
-try:
-    from websockets.asyncio.server import ServerConnection, serve
-except ImportError:
-    from websockets import serve
-
-    ServerConnection = Any  # type: ignore[assignment,misc]
+from websockets.asyncio.server import ServerConnection, serve
 
 from zelos_extension_ocpp.charger_id import ChargerPathResolver
 from zelos_extension_ocpp.ocpp_map import NodeMap
@@ -134,7 +128,6 @@ class ChargePointHandler16(Cp16):
         self.last_heartbeat = time.time()
         self._connectors: dict[int, ConnectorState] = {}
         self.firmware_status: str = "Idle"
-        self.firmware_request_id: int | None = None
 
     def _get_connector(self, connector_id: int) -> ConnectorState:
         """Get or create connector state."""
@@ -148,8 +141,7 @@ class ChargePointHandler16(Cp16):
             f"[CSMS] BootNotification from {self.id}: "
             f"vendor={charge_point_vendor}, model={charge_point_model}"
         )
-        # OCPP 1.6 BootNotification carries a richer set of fields than the two
-        # required positional ones — surface them all in the info trace.
+        # The optional BootNotification identity fields go to the info trace too.
         self.csms.log_info(
             self.id,
             vendor=charge_point_vendor,
@@ -274,7 +266,6 @@ class ChargePointHandler16(Cp16):
         return await self.call(call16.TriggerMessage(requested_message="MeterValues"))
 
     async def update_firmware(self, location: str, request_id: int):
-        self.firmware_request_id = request_id
         return await self.call(
             call16.UpdateFirmware(
                 location=location,
@@ -295,7 +286,6 @@ class ChargePointHandler201(Cp201):
         self.last_heartbeat = time.time()
         self._connectors: dict[int, ConnectorState] = {}
         self.firmware_status: str = "Idle"
-        self.firmware_request_id: int | None = None
         self._transaction_map: dict[str, int] = {}  # ocpp txn_id (str) -> our int txn_id
 
     def _get_connector(self, connector_id: int) -> ConnectorState:
@@ -320,9 +310,7 @@ class ChargePointHandler201(Cp201):
             firmware_version=str(charging_station.get("firmware_version") or ""),
             ocpp_version=self.ocpp_version,
         )
-        # iccid/imsi are useful operational metadata for cellular-attached CPs;
-        # carried by the modem sub-object in 2.0.1 — logged at INFO for now since
-        # they aren't part of the trace schema (string fields, optional).
+        # The trace schema has no modem fields, so ICCID and IMSI go to the log.
         if modem.get("iccid") or modem.get("imsi"):
             logger.info(
                 f"[CSMS] {self.id} modem: iccid={modem.get('iccid')!r} imsi={modem.get('imsi')!r}"
@@ -461,7 +449,6 @@ class ChargePointHandler201(Cp201):
             f"status={status}, request_id={request_id}"
         )
         self.firmware_status = status
-        self.firmware_request_id = request_id
         self.csms.log_firmware(self.id, status, request_id=request_id)
         return call_result201.FirmwareStatusNotification()
 
@@ -497,7 +484,6 @@ class ChargePointHandler201(Cp201):
         )
 
     async def update_firmware(self, location: str, request_id: int):
-        self.firmware_request_id = request_id
         return await self.call(
             call201.UpdateFirmware(
                 request_id=request_id,
@@ -524,7 +510,6 @@ class OcppCsms:
         poll_interval: float = 10.0,
         ssl_cert_file: str | None = None,
         ssl_key_file: str | None = None,
-        charger_aliases: dict[str, str] | None = None,
         charger_aliases_file: str | None = None,
     ) -> None:
         self.host = host
@@ -543,23 +528,11 @@ class OcppCsms:
         self._meter_values_count = 0
         self._source: zelos_sdk.TraceSourceCacheLast | None = None
 
-        # Charge-point identity resolution. Aliases passed in-process take
-        # precedence; otherwise loaded from a JSON file if provided.
-        if charger_aliases is not None:
-            self._resolver = ChargerPathResolver(charger_aliases)
-        else:
-            self._resolver = ChargerPathResolver.from_file(charger_aliases_file)
-
-        # Per-charger event registration bookkeeping.
+        self._resolver = ChargerPathResolver.from_file(charger_aliases_file)
         self._registered_paths: set[str] = set()
         self._event_templates: dict[str, list[zelos_sdk.TraceEventFieldMetadata]] = {}
 
-    # ---- Default per-charger event schema templates ------------------------
-    # Each charger gets its own copy registered under `<charger_path>/<event>`.
-    # Charge-point ID is *implicit in the path* — operators browse and plot
-    # per-charger streams natively in the Zelos viewer. The `connector_id`
-    # field disambiguates connectors within a single charger.
-
+    # Each charger registers these under `<charger_path>/<event>`.
     @staticmethod
     def _default_event_templates() -> dict[str, list[zelos_sdk.TraceEventFieldMetadata]]:
         return {
@@ -663,10 +636,6 @@ class OcppCsms:
         self._registered_paths.add(path)
         logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> ocpp/{path}/*")
         return path
-
-    def get_charger_path(self, cp_id: str) -> str:
-        """Public accessor for the resolved trace path of a charge point."""
-        return self._resolver.resolve(cp_id)
 
     def _log_event(
         self, cp_id: str, event_name: str, values: dict[str, Any], ocpp_version: str = "1.6"
@@ -816,16 +785,10 @@ class OcppCsms:
 
     async def _on_connect(self, websocket: ServerConnection) -> None:
         """Handle a new charge point WebSocket connection."""
-        # Extract charge point ID from the path
-        path = websocket.request.path if hasattr(websocket, "request") else "/"
+        path = websocket.request.path
         cp_id = path.strip("/").split("/")[-1] if path.strip("/") else "unknown"
 
-        # Detect OCPP version from negotiated subprotocol
-        try:
-            requested = websocket.request.headers.get_all("Sec-WebSocket-Protocol")
-        except AttributeError:
-            requested = []
-
+        requested = websocket.request.headers.get_all("Sec-WebSocket-Protocol")
         flat_protocols = [p.strip() for r in requested for p in r.split(",")]
 
         use_201 = "ocpp2.0.1" in flat_protocols
@@ -840,8 +803,7 @@ class OcppCsms:
 
         self._charge_points[cp_id] = handler
 
-        # Register per-charger schemas eagerly so the right value-table
-        # variant (1.6 vs 2.0.1) is bound before any messages arrive.
+        # Binds the 1.6 or 2.0.1 status value table before any message arrives.
         self._register_charger(cp_id, ocpp_version=ocpp_version)
         self.log_charger_health(HEALTH_EVENT_CONNECT)
 

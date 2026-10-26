@@ -104,12 +104,6 @@ class TestChargerPathResolver:
         r = ChargerPathResolver()
         assert r.resolve("AA:BB:CC:DD:EE:FF") == "AA_BB_CC_DD_EE_FF"
 
-    def test_mappings_snapshot(self):
-        r = ChargerPathResolver({"x": "alias_x"})
-        r.resolve("x")
-        r.resolve("y")
-        assert r.mappings == {"x": "alias_x", "y": "y"}
-
     def test_from_file_loads_aliases(self, tmp_path: Path):
         p = tmp_path / "aliases.json"
         p.write_text(json.dumps({"raw1": "fleet/bay_1", "raw2": "fleet/bay_2"}))

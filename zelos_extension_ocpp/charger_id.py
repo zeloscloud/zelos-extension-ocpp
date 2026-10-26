@@ -98,11 +98,6 @@ class ChargerPathResolver:
         self._resolved[cp_id] = path
         return path
 
-    @property
-    def mappings(self) -> dict[str, str]:
-        """Snapshot of all `cp_id -> path` mappings seen so far."""
-        return dict(self._resolved)
-
     @classmethod
     def from_file(cls, path: str | Path | None) -> ChargerPathResolver:
         if not path:

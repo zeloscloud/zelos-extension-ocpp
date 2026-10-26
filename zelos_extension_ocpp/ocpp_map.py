@@ -52,9 +52,6 @@ class Node:
     name: str
     datatype: str = "float32"
     unit: str = ""
-    scale: float = 1.0
-    writable: bool | None = None
-    description: str = ""
 
     def __post_init__(self) -> None:
         if self.datatype not in VALID_DATATYPES:
@@ -71,7 +68,6 @@ class NodeMap:
 
     events: dict[str, list[Node]] = field(default_factory=dict)
     name: str = "ocpp"
-    description: str = ""
 
     @classmethod
     def from_file(cls, path: str | Path) -> NodeMap:
@@ -96,40 +92,12 @@ class NodeMap:
                     name=node_data["name"],
                     datatype=node_data.get("datatype", "float32"),
                     unit=node_data.get("unit", ""),
-                    scale=node_data.get("scale", 1.0),
-                    writable=node_data.get("writable"),
-                    description=node_data.get("description", ""),
                 )
                 nodes.append(node)
             events[event_name] = nodes
 
-        return cls(
-            events=events,
-            name=data.get("name", "ocpp"),
-            description=data.get("description", ""),
-        )
+        return cls(events=events, name=data.get("name", "ocpp"))
 
     @property
     def nodes(self) -> list[Node]:
         return [n for nodes in self.events.values() for n in nodes]
-
-    @property
-    def event_names(self) -> list[str]:
-        return list(self.events.keys())
-
-    def get_event(self, event_name: str) -> list[Node]:
-        return self.events.get(event_name, [])
-
-    def get_by_name(self, name: str) -> Node | None:
-        for nodes in self.events.values():
-            for node in nodes:
-                if node.name == name:
-                    return node
-        return None
-
-    def get_by_address(self, address: str) -> Node | None:
-        for nodes in self.events.values():
-            for node in nodes:
-                if node.address == address:
-                    return node
-        return None
