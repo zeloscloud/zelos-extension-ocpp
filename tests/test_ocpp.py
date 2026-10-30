@@ -129,6 +129,43 @@ class TestNodeMap:
         assert {"energy_wh", "power_w", "connector_status", "firmware_status"} <= names
 
 
+def test_demo_mode_traces_under_the_demo_charger_source(monkeypatch, caplog):
+    import logging
+    from types import SimpleNamespace
+
+    import zelos_sdk
+
+    from zelos_extension_ocpp.cli import app
+
+    clients: list[OcppCsms] = []
+    sdk = SimpleNamespace(
+        actions_registry=SimpleNamespace(register=clients.append),
+        init=lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(app, "zelos_sdk", sdk)
+    monkeypatch.setattr(app, "load_config", dict)
+    monkeypatch.setattr(app, "start_demo_simulator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(OcppCsms, "run", lambda self: None)
+    sources: list[str] = []
+    source_cache = zelos_sdk.TraceSourceCacheLast
+    monkeypatch.setattr(
+        zelos_sdk,
+        "TraceSourceCacheLast",
+        lambda name, *args: sources.append(name) or source_cache(name, *args),
+    )
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        app.run_app_mode(demo=True)
+    finally:
+        for handler in [h for h in root.handlers if h not in before]:
+            root.removeHandler(handler)
+    with caplog.at_level(logging.INFO):
+        clients[0]._register_charger("CP_DEMO")
+    assert sources == ["demo_charger"]
+    assert "[CSMS] Registered trace path for 'CP_DEMO' -> demo_charger/CP_DEMO/*" in caplog.messages
+
+
 # =============================================================================
 # Status Map Tests
 # =============================================================================

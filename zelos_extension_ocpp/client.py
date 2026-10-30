@@ -516,6 +516,7 @@ class OcppCsms:
         self.host = host
         self.port = port
         self.node_map = node_map
+        self._source_name = node_map.name if node_map else "ocpp"
         self.poll_interval = poll_interval
         self.ssl_cert_file = ssl_cert_file
         self.ssl_key_file = ssl_key_file
@@ -599,8 +600,7 @@ class OcppCsms:
 
     def _init_trace_source(self) -> None:
         """Initialize Zelos trace source and register fleet-level events."""
-        source_name = self.node_map.name if self.node_map else "ocpp"
-        self._source = zelos_sdk.TraceSourceCacheLast(source_name)
+        self._source = zelos_sdk.TraceSourceCacheLast(self._source_name)
 
         # Fleet-level event only — per-charger events register lazily on connect.
         self._source.add_event(
@@ -636,7 +636,7 @@ class OcppCsms:
         self._source.add_value_table(f"{path}/firmware", "firmware_status", FIRMWARE_STATUS_NAMES)
 
         self._registered_paths.add(path)
-        logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> ocpp/{path}/*")
+        logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> {self._source_name}/{path}/*")
         return path
 
     def _log_event(
