@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import ssl
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -520,6 +521,7 @@ class OcppCsms:
         self.ssl_key_file = ssl_key_file
 
         self._running = False
+        self.listening = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._charge_points: dict[str, ChargePointHandler16 | ChargePointHandler201] = {}
         self._next_transaction_id = 0
@@ -853,6 +855,7 @@ class OcppCsms:
             ssl=ssl_context,
         ):
             logger.info(f"[CSMS] Listening on {scheme}://{self.host}:{self.port}")
+            self.listening.set()
             poll_task = asyncio.create_task(self._poll_trigger_meter_values())
             health_task = asyncio.create_task(self._poll_charger_health())
             try:

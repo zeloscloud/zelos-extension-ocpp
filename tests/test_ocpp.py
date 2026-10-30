@@ -18,7 +18,6 @@ import asyncio
 import contextlib
 import inspect
 import json
-import socket
 import subprocess
 import tempfile
 import threading
@@ -221,14 +220,8 @@ class CsmsTestServer:
         self._thread = threading.Thread(target=self.csms.run, daemon=True)
         self._thread.start()
 
-        # Wait for WebSocket server to be ready
-        for _ in range(100):
-            try:
-                with socket.create_connection(("127.0.0.1", self.port), timeout=0.1):
-                    return
-            except OSError:
-                time.sleep(0.1)
-        raise RuntimeError(f"CSMS failed to start on port {self.port}")
+        if not self.csms.listening.wait(timeout=10.0):
+            raise RuntimeError(f"CSMS failed to start on port {self.port}")
 
     def stop(self):
         self.csms.stop()
