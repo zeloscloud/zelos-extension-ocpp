@@ -15,7 +15,8 @@ The node map format uses events to group OCPP measurands semantically:
 }
 
 Event names become Zelos trace events. Node names become fields within those events.
-The "address" field maps to OCPP measurand names for identification.
+A node's "address" names the built-in field whose value it carries, as a key of
+`client.FIELD_ADDRESSES`: an OCPP measurand such as "Power.Active.Import", or "Status".
 """
 
 from __future__ import annotations

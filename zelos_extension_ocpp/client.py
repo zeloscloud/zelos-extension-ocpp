@@ -59,6 +59,7 @@ SDK_DATATYPE_MAP = {
     "uint64": zelos_sdk.DataType.UInt64,
     "int64": zelos_sdk.DataType.Int64,
     "float64": zelos_sdk.DataType.Float64,
+    "string": zelos_sdk.DataType.String,
 }
 
 # OCPP 1.6 connector status to uint8 mapping
@@ -106,6 +107,41 @@ HEALTH_EVENT_PERIODIC = 0
 HEALTH_EVENT_CONNECT = 1
 HEALTH_EVENT_DISCONNECT = 2
 HEALTH_EVENT_NAMES = {0: "periodic", 1: "connect", 2: "disconnect"}
+
+# Device map address of each built-in per-charger field; a node with that address replaces it.
+FIELD_ADDRESSES = {
+    "meter_values": {
+        "ConnectorId": "connector_id",
+        "Energy.Active.Import.Register": "energy_wh",
+        "Power.Active.Import": "power_w",
+        "Current.Import": "current_a",
+        "Voltage": "voltage_v",
+        "SoC": "soc_percent",
+        "Temperature": "temperature_c",
+    },
+    "status": {
+        "ConnectorId": "connector_id",
+        "Status": "connector_status",
+        "ErrorCode": "error_code",
+    },
+    "session": {
+        "ConnectorId": "connector_id",
+        "TransactionId": "transaction_id",
+        "MeterStart": "meter_start_wh",
+        "MeterStop": "meter_stop_wh",
+    },
+    "firmware": {
+        "FirmwareStatus": "firmware_status",
+        "RequestId": "request_id",
+    },
+    "info": {
+        "Vendor": "vendor",
+        "Model": "model",
+        "SerialNumber": "serial_number",
+        "FirmwareVersion": "firmware_version",
+        "OcppVersion": "ocpp_version",
+    },
+}
 
 
 @dataclass
@@ -534,6 +570,7 @@ class OcppCsms:
         self._resolver = ChargerPathResolver.from_file(charger_aliases_file)
         self._registered_paths: set[str] = set()
         self._event_templates: dict[str, list[zelos_sdk.TraceEventFieldMetadata]] = {}
+        self._mapped_fields: dict[str, dict[str, str]] = {}
 
     # Each charger registers these under `<charger_path>/<event>`.
     @staticmethod
@@ -579,7 +616,10 @@ class OcppCsms:
     def _build_event_templates(
         self,
     ) -> dict[str, list[zelos_sdk.TraceEventFieldMetadata]]:
-        """Build per-charger event schemas, overlaying any user node-map."""
+        """Build per-charger event schemas, overlaying any user node-map.
+
+        Records, per overlaid event, the device map field that takes each built-in field's value.
+        """
         templates = self._default_event_templates()
         if not self.node_map or not self.node_map.events:
             return templates
@@ -589,13 +629,18 @@ class OcppCsms:
             if event_name == "charger_health" or not nodes:
                 continue
             fields: list[zelos_sdk.TraceEventFieldMetadata] = []
+            mapped: dict[str, str] = {}
+            addresses = FIELD_ADDRESSES.get(event_name, {})
             for node in nodes:
                 dtype = SDK_DATATYPE_MAP.get(node.datatype)
                 if dtype is None:
                     continue
                 fields.append(zelos_sdk.TraceEventFieldMetadata(node.name, dtype, node.unit))
+                if node.address in addresses:
+                    mapped[addresses[node.address]] = node.name
             if fields:
                 templates[event_name] = fields
+                self._mapped_fields[event_name] = mapped
         return templates
 
     def _init_trace_source(self) -> None:
@@ -632,8 +677,13 @@ class OcppCsms:
         status_table = (
             CONNECTOR_STATUS_NAMES_201 if ocpp_version == "2.0.1" else CONNECTOR_STATUS_NAMES
         )
-        self._source.add_value_table(f"{path}/status", "connector_status", status_table)
-        self._source.add_value_table(f"{path}/firmware", "firmware_status", FIRMWARE_STATUS_NAMES)
+        for event_name, name, table in (
+            ("status", "connector_status", status_table),
+            ("firmware", "firmware_status", FIRMWARE_STATUS_NAMES),
+        ):
+            field = self._field_name(event_name, name)
+            if field:
+                self._source.add_value_table(f"{path}/{event_name}", field, table)
 
         self._registered_paths.add(path)
         logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> {self._source_name}/{path}/*")
@@ -647,7 +697,16 @@ class OcppCsms:
         if not self._source:
             return
         path = self._register_charger(cp_id, ocpp_version=ocpp_version)
-        self._source.log(f"{path}/{event_name}", values)
+        fields = {name: self._field_name(event_name, name) for name in values}
+        self._source.log(
+            f"{path}/{event_name}",
+            {field: values[name] for name, field in fields.items() if field},
+        )
+
+    def _field_name(self, event_name: str, name: str) -> str | None:
+        """The field that carries a built-in field's value, or None when a device map drops it."""
+        mapped = self._mapped_fields.get(event_name)
+        return name if mapped is None else mapped.get(name)
 
     def process_meter_values(
         self, cp_id: str, sampled_values: list[dict], connector_id: int = 1

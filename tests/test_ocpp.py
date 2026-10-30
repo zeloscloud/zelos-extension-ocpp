@@ -476,6 +476,48 @@ class TestActionsIntegration:
 # =============================================================================
 
 
+class TestDeviceMapFields:
+    """A device map renames, retypes and re-units built-in fields by their address."""
+
+    def test_mapped_fields_carry_their_values(self):
+        node_map = NodeMap.from_dict(
+            {
+                "events": {
+                    "meter_values": [
+                        {
+                            "name": "energy",
+                            "address": "Energy.Active.Import.Register",
+                            "datatype": "float64",
+                            "unit": "kWh",
+                        },
+                        {"name": "power", "address": "Power.Active.Import", "datatype": "int32"},
+                    ],
+                    "status": [{"name": "state", "address": "Status", "datatype": "uint8"}],
+                    "info": [{"name": "maker", "address": "Vendor", "datatype": "string"}],
+                }
+            }
+        )
+        csms = OcppCsms(host="127.0.0.1", port=19997, node_map=node_map)
+        csms.start()
+
+        csms.process_meter_values(
+            "CP_MAP",
+            [
+                {"value": "1234.5", "measurand": "Energy.Active.Import.Register"},
+                {"value": "7360.4", "measurand": "Power.Active.Import"},
+            ],
+        )
+        csms.log_status("CP_MAP", connector_id=1, connector_status=2, error_code=0)
+        csms.log_info("CP_MAP", vendor="Acme", model="X1")
+
+        source = csms._source
+        assert source.event_field_names("CP_MAP/meter_values") == ["energy", "power"]
+        assert source.get_value("CP_MAP/meter_values", "energy") == 1234.5
+        assert source.get_value("CP_MAP/meter_values", "power") == 7360
+        assert source.get_value("CP_MAP/status", "state") == 2
+        assert source.get_value("CP_MAP/info", "maker") == "Acme"
+
+
 class TestProcessMeterValues:
     """Test the meter values processing logic."""
 
