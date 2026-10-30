@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,14 +26,6 @@ logger = logging.getLogger(__name__)
 
 DEMO_HOST = "localhost"
 DEMO_PORT = 9000
-
-
-def get_demo_node_map_path() -> Path:
-    """Get path to the bundled demo node map."""
-    with resources.as_file(
-        resources.files("zelos_extension_ocpp.demo").joinpath("demo_device.json")
-    ) as path:
-        return path
 
 
 def start_demo_simulator(
@@ -88,11 +79,6 @@ def run_app_mode(demo: bool = False) -> None:
     # Load node map if provided
     node_map = None
     map_file = config.get("device_map_file")
-
-    if is_demo and not map_file:
-        demo_map_path = get_demo_node_map_path()
-        map_file = str(demo_map_path)
-
     if map_file:
         map_path = Path(map_file)
         if map_path.exists():

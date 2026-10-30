@@ -119,15 +119,6 @@ class TestNodeMap:
         with pytest.raises(FileNotFoundError):
             NodeMap.from_file("/nonexistent/path.json")
 
-    def test_demo_device_map_loads(self):
-        map_path = (
-            Path(__file__).parent.parent / "zelos_extension_ocpp" / "demo" / "demo_device.json"
-        )
-        node_map = NodeMap.from_file(str(map_path))
-        assert set(node_map.events) == {"meter_values", "status", "session", "firmware"}
-        names = {node.name for node in node_map.nodes}
-        assert {"energy_wh", "power_w", "connector_status", "firmware_status"} <= names
-
 
 # =============================================================================
 # Status Map Tests

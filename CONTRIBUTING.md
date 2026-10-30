@@ -22,7 +22,7 @@
 | `zelos_extension_ocpp/ocpp_map.py`   | Device map of charge point variables to trace events |
 | `zelos_extension_ocpp/charger_id.py` | Charge point ID resolution and trace-path names      |
 | `zelos_extension_ocpp/cli/app.py`    | App mode: loads `config.json` and starts the CSMS    |
-| `zelos_extension_ocpp/demo/`         | Simulated charge points and the demo device map      |
+| `zelos_extension_ocpp/demo/`         | Simulated charge points                              |
 
 `cli/README.md` documents the `trace` and `demo` commands.
 
