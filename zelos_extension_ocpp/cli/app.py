@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 import threading
-import time
 from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,23 +38,16 @@ def get_demo_node_map_path() -> Path:
 
 
 def start_demo_simulator(
-    port: int, stop_event: asyncio.Event, scheme: str = "ws"
+    listening: threading.Event, port: int, stop_event: asyncio.Event, scheme: str = "ws"
 ) -> threading.Thread:
     """Start the demo charge point simulator in a background thread.
 
-    The simulator connects TO the CSMS after it's ready.
+    The simulator connects to the CSMS once it listens.
     """
     from zelos_extension_ocpp.demo.simulator import run_simulated_charge_point
 
     def run_sim() -> None:
-        # Wait for CSMS WebSocket server to be ready
-        for _ in range(100):
-            try:
-                with socket.create_connection((DEMO_HOST, port), timeout=0.1):
-                    break
-            except OSError:
-                time.sleep(0.1)
-        else:
+        if not listening.wait(timeout=10.0):
             logger.error("Demo simulator: CSMS server did not start in time")
             return
 
@@ -138,6 +129,6 @@ def run_app_mode(demo: bool = False) -> None:
     if is_demo:
         stop_event = asyncio.Event()
         scheme = "wss" if ssl_cert else "ws"
-        start_demo_simulator(port, stop_event, scheme=scheme)
+        start_demo_simulator(client.listening, port, stop_event, scheme=scheme)
 
     client.run()
