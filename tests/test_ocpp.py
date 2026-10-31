@@ -394,6 +394,16 @@ class TestCsmsIntegration:
         assert handler is not None
         assert handler.ocpp_version == "1.6"
 
+    def test_frames_log_no_lines(self, csms_server, simulator, caplog):
+        """The ocpp library's line for every frame sent and received stays out of the log."""
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            result = csms_server.csms.trigger_meter_values_action("CP_TEST_001")
+            time.sleep(0.5)
+        assert result["success"] is True
+        assert [r.getMessage() for r in caplog.records if r.name == "ocpp"] == []
+
 
 # =============================================================================
 # Multi-Connector Tests
