@@ -107,7 +107,7 @@ def run_app_mode(demo: bool = False) -> None:
     client = OcppCsms(**client_kwargs)
 
     zelos_sdk.actions_registry.register(client)
-    zelos_sdk.init(name="zelos_extension_ocpp", actions=True)
+    zelos_sdk.init(name="OCPP", actions=True)
 
     client.start()
 

@@ -153,7 +153,7 @@ def trace(
     )
 
     zelos_sdk.actions_registry.register(_client)
-    zelos_sdk.init(name="zelos_extension_ocpp", actions=True)
+    zelos_sdk.init(name="OCPP", actions=True)
 
     scheme = "wss" if ssl_cert else "ws"
     logger.info(f"Starting OCPP CSMS on {scheme}://{host}:{port}")
