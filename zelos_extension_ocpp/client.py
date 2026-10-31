@@ -45,6 +45,8 @@ from zelos_extension_ocpp.charger_id import ChargerPathResolver
 from zelos_extension_ocpp.ocpp_map import NodeMap
 
 logger = logging.getLogger(__name__)
+# The ocpp library logs every frame it sends and receives at INFO
+logging.getLogger("ocpp").setLevel(logging.WARNING)
 
 # Map from node map datatype strings to Zelos SDK DataType
 SDK_DATATYPE_MAP = {
