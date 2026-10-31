@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import zelos_sdk
 from zelos_sdk.extensions import load_config
+from zelos_sdk.hooks.logging import TraceLoggingHandler
 
 from zelos_extension_ocpp.client import OcppCsms
 from zelos_extension_ocpp.ocpp_map import NodeMap
@@ -124,6 +125,7 @@ def run_app_mode(demo: bool = False) -> None:
     zelos_sdk.init(name="zelos_extension_ocpp", actions=True)
 
     client.start()
+    logging.getLogger().addHandler(TraceLoggingHandler(client.source))
 
     # Start demo simulator after CSMS is about to run
     if is_demo:

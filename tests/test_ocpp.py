@@ -370,7 +370,7 @@ class TestCsmsIntegration:
     def test_per_charger_events_registered(self, csms_server, simulator):
         """Trace source should have per-charger events registered under the
         resolved path, plus the fleet-level charger_health event at the root."""
-        source = csms_server.csms._source
+        source = csms_server.csms.source
         assert source is not None
         # Fleet-level event stays at the root.
         assert "charger_health" in source.events
@@ -556,7 +556,7 @@ class TestDeviceMapFields:
         csms.log_status("CP_MAP", connector_id=1, connector_status=2, error_code=0)
         csms.log_info("CP_MAP", vendor="Acme", model="X1")
 
-        source = csms._source
+        source = csms.source
         assert source.event_field_names("CP_MAP/meter_values") == ["energy", "power"]
         assert source.get_value("CP_MAP/meter_values", "energy") == 1234.5
         assert source.get_value("CP_MAP/meter_values", "power") == 7360
@@ -587,7 +587,7 @@ class TestDeviceMapFields:
             ],
         )
 
-        source = csms._source
+        source = csms.source
         assert source.get_value("CP_NAMES/meter_values", "energy_wh") == 1234.5
         assert source.get_value("CP_NAMES/meter_values", "power_w") == 7360
         assert source.get_value("CP_NAMES/meter_values", "watts") is None
@@ -740,7 +740,7 @@ class TestMultiChargerIsolation:
         assert resolver.resolve("CP.MULTI.201") == "fleet_e2e/bay_2"
 
     def test_per_charger_events_registered_for_both(self, csms_server_multi, multi_simulators):
-        events = csms_server_multi.csms._source.events
+        events = csms_server_multi.csms.source.events
         for event_name in ("meter_values", "status", "session", "firmware", "info"):
             assert f"CP_MULTI_16/{event_name}" in events, f"missing CP_MULTI_16/{event_name}"
             assert f"fleet_e2e/bay_2/{event_name}" in events, (
@@ -969,7 +969,7 @@ class TestChargerHealth:
     def test_trace_source_has_charger_health(self, csms_with_source):
         """Trace source should have charger_health event registered."""
         csms = csms_with_source
-        assert hasattr(csms._source, "charger_health")
+        assert hasattr(csms.source, "charger_health")
 
 
 # =============================================================================
@@ -1038,4 +1038,32 @@ class TestHealthIntegration:
 
     def test_charger_health_event_on_connect(self, csms_server, simulator):
         """Charger health event source should exist after CP connects."""
-        assert hasattr(csms_server.csms._source, "charger_health")
+        assert hasattr(csms_server.csms.source, "charger_health")
+
+
+def test_app_mode_logs_on_the_csms_source(monkeypatch):
+    import logging
+    from types import SimpleNamespace
+
+    from zelos_sdk.hooks.logging import TraceLoggingHandler
+
+    from zelos_extension_ocpp.cli import app
+
+    clients: list[OcppCsms] = []
+    sdk = SimpleNamespace(
+        actions_registry=SimpleNamespace(register=clients.append),
+        init=lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(app, "zelos_sdk", sdk)
+    monkeypatch.setattr(app, "load_config", dict)
+    monkeypatch.setattr(OcppCsms, "run", lambda self: None)
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        app.run_app_mode()
+        added = [h for h in root.handlers if h not in before]
+    finally:
+        for handler in [h for h in root.handlers if h not in before]:
+            root.removeHandler(handler)
+    assert [type(h) for h in added] == [TraceLoggingHandler]
+    assert added[0].trace_source is clients[0].source

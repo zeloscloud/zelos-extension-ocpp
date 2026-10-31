@@ -565,7 +565,7 @@ class OcppCsms:
         self._next_remote_start_id = 0
         self._next_firmware_request_id = 0
         self._meter_values_count = 0
-        self._source: zelos_sdk.TraceSourceCacheLast | None = None
+        self.source: zelos_sdk.TraceSourceCacheLast | None = None
 
         self._resolver = ChargerPathResolver.from_file(charger_aliases_file)
         self._registered_paths: set[str] = set()
@@ -649,10 +649,10 @@ class OcppCsms:
 
     def _init_trace_source(self) -> None:
         """Initialize Zelos trace source and register fleet-level events."""
-        self._source = zelos_sdk.TraceSourceCacheLast(self._source_name)
+        self.source = zelos_sdk.TraceSourceCacheLast(self._source_name)
 
         # Fleet-level event only — per-charger events register lazily on connect.
-        self._source.add_event(
+        self.source.add_event(
             "charger_health",
             [
                 zelos_sdk.TraceEventFieldMetadata("total_connected", zelos_sdk.DataType.UInt8, ""),
@@ -661,7 +661,7 @@ class OcppCsms:
                 zelos_sdk.TraceEventFieldMetadata("event_type", zelos_sdk.DataType.UInt8, ""),
             ],
         )
-        self._source.add_value_table("charger_health", "event_type", HEALTH_EVENT_NAMES)
+        self.source.add_value_table("charger_health", "event_type", HEALTH_EVENT_NAMES)
 
         self._event_templates = self._build_event_templates()
 
@@ -671,11 +671,11 @@ class OcppCsms:
         Returns the resolved trace-path segment for this charger.
         """
         path = self._resolver.resolve(cp_id)
-        if path in self._registered_paths or not self._source:
+        if path in self._registered_paths or not self.source:
             return path
 
         for event_name, fields in self._event_templates.items():
-            self._source.add_event(f"{path}/{event_name}", fields)
+            self.source.add_event(f"{path}/{event_name}", fields)
 
         # OCPP 1.6 and 2.0.1 use different connector status enums.
         status_table = (
@@ -687,7 +687,7 @@ class OcppCsms:
         ):
             field = self._field_name(event_name, name)
             if field:
-                self._source.add_value_table(f"{path}/{event_name}", field, table)
+                self.source.add_value_table(f"{path}/{event_name}", field, table)
 
         self._registered_paths.add(path)
         logger.info(f"[CSMS] Registered trace path for {cp_id!r} -> {self._source_name}/{path}/*")
@@ -698,11 +698,11 @@ class OcppCsms:
     ) -> None:
         """Log a per-charger event. Resolves the charger path and registers
         schemas lazily on first sight."""
-        if not self._source:
+        if not self.source:
             return
         path = self._register_charger(cp_id, ocpp_version=ocpp_version)
         fields = {name: self._field_name(event_name, name) for name in values}
-        self._source.log(
+        self.source.log(
             f"{path}/{event_name}",
             {field: values[name] for name, field in fields.items() if field},
         )
@@ -812,7 +812,7 @@ class OcppCsms:
 
     def log_charger_health(self, event_type: int) -> None:
         """Log a charger health trace event."""
-        if not self._source:
+        if not self.source:
             return
         now = time.time()
         total = len(self._charge_points)
@@ -821,7 +821,7 @@ class OcppCsms:
             for h in self._charge_points.values()
             if (now - h.last_heartbeat) > HEARTBEAT_STALE_THRESHOLD_S
         )
-        self._source.charger_health.log(
+        self.source.charger_health.log(
             total_connected=total,
             total_healthy=total - stale,
             total_stale=stale,
