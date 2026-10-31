@@ -76,9 +76,6 @@ def cli(ctx: click.Context, demo: bool) -> None:
 
 def run_app_mode(demo: bool = False) -> None:
     """Run in app mode with Zelos SDK initialization."""
-    handler = TraceLoggingHandler("zelos_extension_ocpp_logger")
-    logging.getLogger().addHandler(handler)
-
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
@@ -135,9 +132,6 @@ def trace(
     """
     from zelos_extension_ocpp.client import OcppCsms
 
-    handler = TraceLoggingHandler("zelos_extension_ocpp_logger")
-    logging.getLogger().addHandler(handler)
-
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
@@ -157,6 +151,7 @@ def trace(
     scheme = "wss" if ssl_cert else "ws"
     logger.info(f"Starting OCPP CSMS on {scheme}://{host}:{port}")
     _client.start()
+    logging.getLogger().addHandler(TraceLoggingHandler(_client.source))
     _client.run()
 
 
