@@ -83,16 +83,51 @@ If no alias matches and the raw `cp_id` sanitizes to nothing usable, the
 extension assigns a monotonic fallback path (`cp_0`, `cp_1`, …) and logs a
 warning.
 
+### Device Map
+
+A device map renames, retypes or re-units the fields of the per-charger
+events. It lists nodes per event. Each node names a field (`name`), says
+which built-in field's value it carries (`address`), and may set a
+`datatype` (default `float32`; `string` for `info` fields) and a `unit`:
+
+```json
+{
+  "events": {
+    "meter_values": [
+      {"name": "energy", "address": "Energy.Active.Import.Register", "datatype": "float64", "unit": "Wh"},
+      {"name": "power", "address": "Power.Active.Import", "unit": "W"}
+    ]
+  }
+}
+```
+
+An event in the map replaces that event's built-in fields, so fields the
+map leaves out are not recorded. A top-level `name` renames the `ocpp`
+source. The addresses a node can use:
+
+| Event | Addresses |
+|-------|-----------|
+| `meter_values` | `ConnectorId`, `Energy.Active.Import.Register`, `Power.Active.Import`, `Current.Import`, `Voltage`, `SoC`, `Temperature` |
+| `status` | `ConnectorId`, `Status`, `ErrorCode` |
+| `session` | `ConnectorId`, `TransactionId`, `MeterStart`, `MeterStop` |
+| `firmware` | `FirmwareStatus`, `RequestId` |
+| `info` | `Vendor`, `Model`, `SerialNumber`, `FirmwareVersion`, `OcppVersion` |
+
+`Status` and `FirmwareStatus` carry numeric codes with value tables;
+`ErrorCode` is 0 for NoError and 1 for any fault, and always 0 from an
+OCPP 2.0.1 charge point, whose status notifications carry no error code.
+
 ## Actions
 
 The extension provides several actions accessible from the Zelos App:
 
-- **Get Status** — View connected charge points, connector states, firmware status, and statistics
 - **Remote Start Transaction** — Start a charging session on a specific charge point
 - **Remote Stop Transaction** — Stop an active charging session
 - **Trigger MeterValues** — Request immediate meter readings from a charge point
 - **Reset Charge Point** — Send a soft or hard reset command
 - **Update Firmware** — Trigger a firmware update on a charge point
+
+**Get Status** reports connected charge points, connector states, firmware status, and statistics. The app's action list leaves it out, and Zelos AI can still run it.
 
 ## What is OCPP?
 

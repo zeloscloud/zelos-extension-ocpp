@@ -1,7 +1,7 @@
 [project]
 name = "zelos-extension-ocpp"
 version = "0.1.0"
-description = "OCPP 1.6 protocol extension for Zelos - EV charging station management as a Central System (CSMS)"
+description = "Run an OCPP 1.6 and 2.0.1 central system (CSMS): EV charge points connect over WebSocket and their meter values, connector status and sessions become signals. Remote start and stop, reset and firmware update."
 authors = [{ name = "Zelos", email = "support@zeloscloud.io" }]
 readme = "README.md"
 license = { text = "MIT" }
@@ -15,6 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "zelos-sdk>=0.0.13a1",
@@ -27,19 +28,21 @@ dependencies = [
 Homepage = "https://github.com/zeloscloud/zelos-extension-ocpp"
 Repository = "https://github.com/zeloscloud/zelos-extension-ocpp"
 Issues = "https://github.com/zeloscloud/zelos-extension-ocpp/issues"
-Documentation = "https://docs.zeloscloud.io/extensions"
+Documentation = "https://docs.zeloscloud.io/app/extensions/"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=8.4.2",
-    "pytest-asyncio>=0.24.0",
-    "pre-commit>=4.3.0",
-    "ruff>=0.14.2",
+    "pytest>=9.1.1",
+    "pre-commit>=4.6.2",
+    "ruff>=0.16.10",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+required-version = ">=0.9.5"
 
 [tool.hatch.build.targets.wheel]
 packages = ["zelos_extension_ocpp"]
@@ -47,11 +50,9 @@ packages = ["zelos_extension_ocpp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--log-cli-level=INFO"
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
-target-version = "py311"
+target-version = 'py311'
 line-length = 100
 
 [tool.ruff.lint]
@@ -68,9 +69,3 @@ select = [
 ignore = [
     "B008",   # function call in defaults (common in decorators)
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"scripts/*.py" = ["PTH123"]  # Allow open() in scripts
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"

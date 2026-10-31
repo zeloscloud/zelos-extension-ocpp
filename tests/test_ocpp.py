@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import inspect
 import json
-import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -56,8 +56,6 @@ class TestNode:
         node = Node(address="Energy.Active.Import.Register", name="energy")
         assert node.datatype == "float32"
         assert node.unit == ""
-        assert node.scale == 1.0
-        assert node.writable is None
 
     def test_invalid_datatype_raises(self):
         with pytest.raises(ValueError, match="Invalid datatype"):
@@ -85,11 +83,6 @@ class TestNode:
             node = Node(address="x", name="test", datatype=dt)
             assert node.datatype == dt
 
-    def test_writable_flag(self):
-        assert Node(address="x", name="t", writable=True).writable is True
-        assert Node(address="x", name="t", writable=False).writable is False
-        assert Node(address="x", name="t").writable is None
-
 
 class TestNodeMap:
     """Test NodeMap parsing."""
@@ -102,7 +95,7 @@ class TestNodeMap:
             }
         }
         node_map = NodeMap.from_dict(data)
-        assert set(node_map.event_names) == {"meter_values", "status"}
+        assert set(node_map.events) == {"meter_values", "status"}
         assert len(node_map.nodes) == 2
 
     def test_from_dict_with_name(self):
@@ -125,41 +118,6 @@ class TestNodeMap:
     def test_from_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             NodeMap.from_file("/nonexistent/path.json")
-
-    def test_get_by_name(self):
-        data = {
-            "events": {
-                "a": [{"name": "voltage", "address": "Voltage"}],
-                "b": [{"name": "current", "address": "Current.Import"}],
-            }
-        }
-        node_map = NodeMap.from_dict(data)
-        assert node_map.get_by_name("voltage").address == "Voltage"
-        assert node_map.get_by_name("current").address == "Current.Import"
-        assert node_map.get_by_name("nonexistent") is None
-
-    def test_get_by_address(self):
-        data = {
-            "events": {
-                "a": [{"name": "voltage", "address": "Voltage"}],
-            }
-        }
-        node_map = NodeMap.from_dict(data)
-        assert node_map.get_by_address("Voltage").name == "voltage"
-        assert node_map.get_by_address("nonexistent") is None
-
-    def test_demo_device_map_loads(self):
-        map_path = (
-            Path(__file__).parent.parent / "zelos_extension_ocpp" / "demo" / "demo_device.json"
-        )
-        node_map = NodeMap.from_file(str(map_path))
-        assert len(node_map.nodes) > 0
-        # meter_values, status, session, firmware, charger_health
-        assert len(node_map.event_names) >= 5
-        assert node_map.get_by_name("energy_wh") is not None
-        assert node_map.get_by_name("power_w") is not None
-        assert node_map.get_by_name("connector_status") is not None
-        assert node_map.get_by_name("firmware_status") is not None
 
 
 # =============================================================================
@@ -253,14 +211,8 @@ class CsmsTestServer:
         self._thread = threading.Thread(target=self.csms.run, daemon=True)
         self._thread.start()
 
-        # Wait for WebSocket server to be ready
-        for _ in range(100):
-            try:
-                with socket.create_connection(("127.0.0.1", self.port), timeout=0.1):
-                    return
-            except OSError:
-                time.sleep(0.1)
-        raise RuntimeError(f"CSMS failed to start on port {self.port}")
+        if not self.csms.listening.wait(timeout=10.0):
+            raise RuntimeError(f"CSMS failed to start on port {self.port}")
 
     def stop(self):
         self.csms.stop()
@@ -377,7 +329,7 @@ class TestCsmsIntegration:
         # Fleet-level event stays at the root.
         assert "charger_health" in source.events
         # Per-charger events live under <charger_path>/<event>.
-        cp_path = csms_server.csms.get_charger_path("CP_TEST_001")
+        cp_path = csms_server.csms._resolver.resolve("CP_TEST_001")
         for event_name in ("meter_values", "status", "session", "firmware", "info"):
             assert f"{cp_path}/{event_name}" in source.events, (
                 f"expected {cp_path}/{event_name} to be registered"
@@ -524,6 +476,48 @@ class TestActionsIntegration:
 # =============================================================================
 
 
+class TestDeviceMapFields:
+    """A device map renames, retypes and re-units built-in fields by their address."""
+
+    def test_mapped_fields_carry_their_values(self):
+        node_map = NodeMap.from_dict(
+            {
+                "events": {
+                    "meter_values": [
+                        {
+                            "name": "energy",
+                            "address": "Energy.Active.Import.Register",
+                            "datatype": "float64",
+                            "unit": "kWh",
+                        },
+                        {"name": "power", "address": "Power.Active.Import", "datatype": "int32"},
+                    ],
+                    "status": [{"name": "state", "address": "Status", "datatype": "uint8"}],
+                    "info": [{"name": "maker", "address": "Vendor", "datatype": "string"}],
+                }
+            }
+        )
+        csms = OcppCsms(host="127.0.0.1", port=19997, node_map=node_map)
+        csms.start()
+
+        csms.process_meter_values(
+            "CP_MAP",
+            [
+                {"value": "1234.5", "measurand": "Energy.Active.Import.Register"},
+                {"value": "7360.4", "measurand": "Power.Active.Import"},
+            ],
+        )
+        csms.log_status("CP_MAP", connector_id=1, connector_status=2, error_code=0)
+        csms.log_info("CP_MAP", vendor="Acme", model="X1")
+
+        source = csms._source
+        assert source.event_field_names("CP_MAP/meter_values") == ["energy", "power"]
+        assert source.get_value("CP_MAP/meter_values", "energy") == 1234.5
+        assert source.get_value("CP_MAP/meter_values", "power") == 7360
+        assert source.get_value("CP_MAP/status", "state") == 2
+        assert source.get_value("CP_MAP/info", "maker") == "Acme"
+
+
 class TestProcessMeterValues:
     """Test the meter values processing logic."""
 
@@ -666,8 +660,9 @@ class TestMultiChargerIsolation:
 
     def test_paths_resolve_distinctly(self, csms_server_multi, multi_simulators):
         # Sanitized default for v1.6 (already alnum), alias for the dotted v2.0.1 id.
-        assert csms_server_multi.csms.get_charger_path("CP_MULTI_16") == "CP_MULTI_16"
-        assert csms_server_multi.csms.get_charger_path("CP.MULTI.201") == "fleet_e2e/bay_2"
+        resolver = csms_server_multi.csms._resolver
+        assert resolver.resolve("CP_MULTI_16") == "CP_MULTI_16"
+        assert resolver.resolve("CP.MULTI.201") == "fleet_e2e/bay_2"
 
     def test_per_charger_events_registered_for_both(self, csms_server_multi, multi_simulators):
         events = csms_server_multi.csms._source.events
@@ -764,99 +759,65 @@ class TestFirmwareUpdate:
 
 
 def _generate_self_signed_cert(cert_path: str, key_path: str) -> None:
-    """Generate a self-signed certificate for testing."""
-    try:
-        import datetime
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            key_path,
+            "-out",
+            cert_path,
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=localhost",
+        ],
+        check=True,
+        capture_output=True,
+    )
 
-        from cryptography import x509
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.x509.oid import NameOID
 
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        subject = issuer = x509.Name(
-            [
-                x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-            ]
-        )
-        cert = (
-            x509.CertificateBuilder()
-            .subject_name(subject)
-            .issuer_name(issuer)
-            .public_key(key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.now(datetime.UTC))
-            .not_valid_after(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1))
-            .sign(key, hashes.SHA256())
-        )
-        Path(key_path).write_bytes(
-            key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.TraditionalOpenSSL,
-                serialization.NoEncryption(),
-            )
-        )
-        Path(cert_path).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    except ImportError:
-        # Fall back to openssl command
-        import subprocess
+@pytest.fixture(scope="module")
+def tls_certs(tmp_path_factory):
+    """Generate self-signed cert/key for TLS testing."""
+    tmp = tmp_path_factory.mktemp("tls")
+    cert_path = str(tmp / "cert.pem")
+    key_path = str(tmp / "key.pem")
+    _generate_self_signed_cert(cert_path, key_path)
+    return cert_path, key_path
 
-        subprocess.run(
-            [
-                "openssl",
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-keyout",
-                key_path,
-                "-out",
-                cert_path,
-                "-days",
-                "1",
-                "-nodes",
-                "-subj",
-                "/CN=localhost",
-            ],
-            check=True,
-            capture_output=True,
-        )
+
+@pytest.fixture(scope="module")
+def tls_csms_server(tls_certs):
+    cert_path, key_path = tls_certs
+    server = CsmsTestServer(
+        port=19002,
+        ssl_cert_file=cert_path,
+        ssl_key_file=key_path,
+    )
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture(scope="module")
+def tls_simulator(tls_csms_server):
+    sim = SimulatorRunner(
+        csms_url=f"wss://127.0.0.1:{tls_csms_server.port}",
+        cp_id="CP_TEST_TLS",
+        ocpp_version="1.6",
+    )
+    sim.start()
+    yield sim
+    sim.stop()
 
 
 class TestTls:
     """Test TLS/WSS support."""
-
-    @pytest.fixture(scope="class")
-    def tls_certs(self, tmp_path_factory):
-        """Generate self-signed cert/key for TLS testing."""
-        tmp = tmp_path_factory.mktemp("tls")
-        cert_path = str(tmp / "cert.pem")
-        key_path = str(tmp / "key.pem")
-        _generate_self_signed_cert(cert_path, key_path)
-        return cert_path, key_path
-
-    @pytest.fixture(scope="class")
-    def tls_csms_server(self, tls_certs):
-        cert_path, key_path = tls_certs
-        server = CsmsTestServer(
-            port=19002,
-            ssl_cert_file=cert_path,
-            ssl_key_file=key_path,
-        )
-        server.start()
-        yield server
-        server.stop()
-
-    @pytest.fixture(scope="class")
-    def tls_simulator(self, tls_csms_server):
-        sim = SimulatorRunner(
-            csms_url=f"wss://127.0.0.1:{tls_csms_server.port}",
-            cp_id="CP_TEST_TLS",
-            ocpp_version="1.6",
-        )
-        sim.start()
-        yield sim
-        sim.stop()
 
     def test_tls_connection(self, tls_csms_server, tls_simulator):
         """Charge point should connect over TLS."""
@@ -934,18 +895,6 @@ class TestChargerHealth:
         """Trace source should have charger_health event registered."""
         csms = csms_with_source
         assert hasattr(csms._source, "charger_health")
-
-    def test_demo_device_map_has_charger_health(self):
-        """Demo device map should include charger_health event."""
-        map_path = (
-            Path(__file__).parent.parent / "zelos_extension_ocpp" / "demo" / "demo_device.json"
-        )
-        node_map = NodeMap.from_file(str(map_path))
-        assert "charger_health" in node_map.event_names
-        assert node_map.get_by_name("total_connected") is not None
-        assert node_map.get_by_name("total_healthy") is not None
-        assert node_map.get_by_name("total_stale") is not None
-        assert node_map.get_by_name("event_type") is not None
 
 
 # =============================================================================

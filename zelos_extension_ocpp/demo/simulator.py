@@ -61,11 +61,7 @@ from ocpp.v201.enums import (
 from ocpp.v201.enums import (
     RegistrationStatusEnumType as RegStatus201,
 )
-
-try:
-    from websockets.asyncio.client import connect
-except ImportError:
-    from websockets import connect
+from websockets.asyncio.client import connect
 
 logger = logging.getLogger(__name__)
 

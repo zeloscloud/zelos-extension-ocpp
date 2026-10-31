@@ -59,12 +59,6 @@ def shutdown_handler(signum: int, frame: FrameType | None) -> None:
     sys.exit(0)
 
 
-def set_shutdown_client(client: OcppCsms) -> None:
-    """Set the client for shutdown handling."""
-    global _client
-    _client = client
-
-
 @click.group(invoke_without_command=True)
 @click.option("--demo", is_flag=True, help="Run in demo mode with simulated charge point")
 @click.pass_context
@@ -77,15 +71,11 @@ def cli(ctx: click.Context, demo: bool) -> None:
     Use --demo flag or 'demo' subcommand for simulated charge point.
     Use 'trace' subcommand for direct CLI access without Zelos App.
     """
-    ctx.ensure_object(dict)
-    ctx.obj["shutdown_handler"] = set_shutdown_client
-    ctx.obj["demo"] = demo
-
     if ctx.invoked_subcommand is None:
-        run_app_mode(ctx, demo=demo)
+        run_app_mode(demo=demo)
 
 
-def run_app_mode(ctx: click.Context, demo: bool = False) -> None:
+def run_app_mode(demo: bool = False) -> None:
     """Run in app mode with Zelos SDK initialization."""
     handler = TraceLoggingHandler("zelos_extension_ocpp_logger")
     logging.getLogger().addHandler(handler)
@@ -99,14 +89,13 @@ def run_app_mode(ctx: click.Context, demo: bool = False) -> None:
 
 
 @cli.command()
-@click.pass_context
-def demo(ctx: click.Context) -> None:
+def demo() -> None:
     """Run demo mode with simulated charge point.
 
     Starts the CSMS WebSocket server and connects a simulated charge
     point that generates realistic meter values. No hardware required.
     """
-    run_app_mode(ctx, demo=True)
+    run_app_mode(demo=True)
 
 
 @cli.command()
@@ -121,9 +110,7 @@ def demo(ctx: click.Context) -> None:
     default=None,
     help="JSON file mapping charge-point IDs to friendly trace paths",
 )
-@click.pass_context
 def trace(
-    ctx: click.Context,
     host: str,
     port: int,
     interval: float,
@@ -165,9 +152,8 @@ def trace(
         charger_aliases_file=aliases,
     )
 
-    # Register actions BEFORE init() -- SDK requires this ordering
     zelos_sdk.actions_registry.register(_client)
-    zelos_sdk.init(name="zelos_extension_ocpp", actions=True)
+    zelos_sdk.init(name="OCPP", actions=True)
 
     scheme = "wss" if ssl_cert else "ws"
     logger.info(f"Starting OCPP CSMS on {scheme}://{host}:{port}")
